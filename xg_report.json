@@ -1,0 +1,13 @@
+{
+  "shots": 9817,
+  "log_loss": 0.2671,
+  "baseline_log_loss": 0.3097,
+  "auc": 0.7623,
+  "brier": 0.0743,
+  "total_xg_vs_goals": [
+    901.0,
+    914
+  ],
+  "corr_with_statsbomb_xg": 0.821,
+  "statsbomb_auc_same_shots": 0.7954
+}
