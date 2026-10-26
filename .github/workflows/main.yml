@@ -1,4 +1,4 @@
-name: Update stat
+name: Update stats
 
 on:
   schedule:
@@ -7,7 +7,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -17,43 +17,45 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Find project folder
-        id: dir
+      - name: Sort files into folders
         run: |
-          f=$(find . -path '*/pipeline/fetch_basic.py' -not -path './.git/*' | head -1)
-          if [ -z "$f" ]; then
-            echo "::error::Couldn't find pipeline/fetch_basic.py in this repository. Upload the project files first."
-            ls -R | head -50
-            exit 1
-          fi
-          d=$(dirname "$(dirname "$f")")
-          echo "Project folder: $d"
-          echo "path=$d" >> "$GITHUB_OUTPUT"
+          mkdir -p pipeline model site
+          for f in extract.py xg_model.py fetch_basic.py fetch_live.py score_xg.py build_stats.py package_site.py; do
+            if [ -f "$f" ]; then mv -f "$f" pipeline/; fi
+          done
+          for f in xg_model.joblib xg_report.json; do
+            if [ -f "$f" ]; then mv -f "$f" model/; fi
+          done
+          for f in index.html data.json; do
+            if [ -f "$f" ]; then mv -f "$f" site/; fi
+          done
+          ls -R pipeline model site
+          if [ ! -f pipeline/fetch_basic.py ]; then echo "::error::fetch_basic.py is missing. Upload it to the repository."; exit 1; fi
+          if [ ! -f pipeline/package_site.py ]; then echo "::error::package_site.py is missing. Upload it to the repository."; exit 1; fi
+          if ! grep -q "live.json" site/index.html; then echo "::error::index.html is the old version. Upload the new index.html."; exit 1; fi
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install packages
-        working-directory: ${{ steps.dir.outputs.path }}
         run: pip install pandas numpy scikit-learn joblib
 
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.dir.outputs.path }}/cache
-          key: provider-cache-${{ github.run_id }}
-          restore-keys: provider-cache-
-
       - name: Fetch this season's table, results and scorers (free plan)
-        working-directory: ${{ steps.dir.outputs.path }}
         env:
           FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
         run: python pipeline/fetch_basic.py site/live.json
 
       # The steps below only run once you add a paid provider (set the DATA_API_BASE variable).
+      - uses: actions/cache@v4
+        if: ${{ vars.DATA_API_BASE != '' }}
+        with:
+          path: cache
+          key: provider-cache-${{ github.run_id }}
+          restore-keys: provider-cache-
+
       - name: Fetch new matches with shot data (paid plan)
         if: ${{ vars.DATA_API_BASE != '' }}
-        working-directory: ${{ steps.dir.outputs.path }}
         env:
           DATA_API_KEY: ${{ secrets.DATA_API_KEY }}
           DATA_API_BASE: ${{ vars.DATA_API_BASE }}
@@ -62,30 +64,18 @@ jobs:
 
       - name: Score shots with the Touchline xG model
         if: ${{ vars.DATA_API_BASE != '' }}
-        working-directory: ${{ steps.dir.outputs.path }}
         run: python pipeline/score_xg.py data model/xg_model.joblib
 
       - name: Build full stats
         if: ${{ vars.DATA_API_BASE != '' }}
-        working-directory: ${{ steps.dir.outputs.path }}
         run: python pipeline/build_stats.py data site/data.json "${{ vars.SEASON_LABEL }}"
 
-      - name: Commit updated stats
-        working-directory: ${{ steps.dir.outputs.path }}
-        run: |
-          git config user.name "touchline-bot"
-          git config user.email "touchline-bot@users.noreply.github.com"
-          git add site/data.json site/live.json
-          git diff --cached --quiet || git commit -m "Update stats $(date -u +%F)"
-          git push
-
       - name: Package site
-        working-directory: ${{ steps.dir.outputs.path }}
         run: python pipeline/package_site.py dist
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: ${{ steps.dir.outputs.path }}/dist
+          path: dist
 
   deploy:
     needs: update
