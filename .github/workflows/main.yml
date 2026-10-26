@@ -1,4 +1,4 @@
-name: Update stats
+name: Update stat
 
 on:
   schedule:
