@@ -53,6 +53,12 @@ header.mast { border-bottom: 1px solid var(--line); background: var(--surface); 
 .brand span { color: var(--pitch); }
 .season { font: 500 15px/1 var(--f-display); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
 .season b { color: var(--ink); font-weight: 600; }
+#seasonSeg button { font: 600 14px/1 var(--f-display); letter-spacing: .06em; padding: 7px 11px; }
+#seasonSeg small { font: 500 11px/1 var(--f-body); letter-spacing: 0; text-transform: none; opacity: .75; margin-left: 4px; }
+.banner { border: 1px solid var(--line); background: var(--xg-soft); border-radius: 4px; padding: 10px 14px; margin-bottom: 14px; max-width: 80ch; }
+.banner button { background: none; border: 0; padding: 0; color: var(--pitch); text-decoration: underline; cursor: pointer; font-weight: 600; }
+.match.static { cursor: default; }
+.match.static:hover { border-color: var(--line); }
 .credit { margin-left: auto; font-size: 12px; color: var(--muted); }
 nav.tabs { display: flex; gap: 2px; overflow-x: auto; }
 nav.tabs a { font: 600 16px/1 var(--f-display); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); text-decoration: none; padding: 12px 14px 10px; border-bottom: 3px solid transparent; white-space: nowrap; }
@@ -189,8 +195,9 @@ footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px
 <header class="mast">
   <div class="wrap">
     <h1 class="brand">Touch<span>line</span></h1>
-    <div class="season"><b>Premier League</b> · 2015/16</div>
-    <div class="credit">Data: StatsBomb Open Data · xG: Touchline model</div>
+    <div class="season"><b>Premier League</b></div>
+    <div class="seg" id="seasonSeg" role="group" aria-label="Season"></div>
+    <div class="credit" id="credit"></div>
   </div>
 </header>
 <div class="tabbar"><div class="wrap"><nav class="tabs" aria-label="Sections">
@@ -202,7 +209,9 @@ footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px
 
 <main class="wrap">
   <section id="v-players" data-v="players">
-    <h2>Player stats</h2>
+    <h2 id="pTitle">Player stats</h2>
+    <div id="livePlayers" hidden></div>
+    <div id="histPlayers">
     <p class="lede">Every player who featured. Click a name for their shot map and how they compare with others in the same position.</p>
     <div class="views" id="statViews" role="group" aria-label="Stat group"></div>
     <div class="controls">
@@ -214,18 +223,19 @@ footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px
       <span class="count" id="pcount"></span>
     </div>
     <div class="tscroll"><table id="ptable"></table></div>
+    </div>
   </section>
 
   <section id="v-table" data-v="table" hidden>
     <h2>League table</h2>
-    <p class="lede">Final standings next to what the chances said. xPts simulates every match from its shots, so it shows the points a team's chance creation and prevention earned on average.</p>
+    <p class="lede" id="tLede">Final standings next to what the chances said. xPts simulates every match from its shots, so it shows the points a team's chance creation and prevention earned on average.</p>
     <div class="tscroll"><table id="ltable"></table></div>
-    <div class="legend"><span style="--c:var(--pitch)">Champions League</span><span style="--c:var(--bad)">Relegated</span><span>Pts − xPts: green ran hot, red ran cold</span></div>
+    <div class="legend" id="tLegend"></div>
   </section>
 
   <section id="v-matches" data-v="matches" hidden>
     <h2>Matches</h2>
-    <p class="lede">Results with each side's expected goals. Click a match for its shot map.</p>
+    <p class="lede" id="mLede"></p>
     <div class="controls">
       <div class="field"><label for="wkSel">Matchweek</label><select id="wkSel"></select></div>
       <div class="field"><label for="mTeam">Team</label><select id="mTeam"><option value="">All teams</option></select></div>
@@ -256,7 +266,7 @@ footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px
     </div>
   </section>
 </main>
-<footer><div class="wrap">Touchline · Premier League 2015/16 · Event data © StatsBomb, used under the StatsBomb Open Data user agreement. Not affiliated with the Premier League or its clubs. <span id="updated"></span></div></footer>
+<footer><div class="wrap" id="foot"></div></footer>
 
 <div class="shade" id="shade" hidden></div>
 <aside class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetTitle"></aside>
@@ -268,6 +278,9 @@ footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px
   let D;
   try { D = await (await fetch("data.json")).json(); }
   catch (e) { document.querySelector("main").innerHTML = '<p class="lede">The stats file could not be loaded. Reload the page to try again.</p>'; return; }
+  let L = null;
+  try { const r = await fetch("live.json"); if (r.ok) L = await r.json(); } catch (e) {}
+  let season = L ? "live" : "hist";
 
   const short = t => t.replace(" Hotspur", "").replace(" Albion", "").replace("Manchester ", "Man ").replace("AFC ", "").replace(" & Hove", "");
   const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
@@ -332,7 +345,7 @@ footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px
   // controls
   $("#statViews").innerHTML = Object.keys(VIEWS).map(v => `<button data-view="${v}" aria-pressed="${v === st.view}">${v}</button>`).join("");
   $("#posSeg").innerHTML = [["", "All"], ["FW", "FW"], ["MF", "MF"], ["DF", "DF"], ["GK", "GK"]].map(([v, l]) => `<button data-p="${v}" aria-pressed="${v === st.pos}">${l}</button>`).join("");
-  for (const sel of ["#teamSel", "#mTeam"]) $(sel).insertAdjacentHTML("beforeend", teams.map(t => `<option>${esc(t)}</option>`).join(""));
+  for (const sel of ["#teamSel"]) $(sel).insertAdjacentHTML("beforeend", teams.map(t => `<option>${esc(t)}</option>`).join(""));
   $("#minMin").value = st.minMin; $("#minMinV").textContent = st.minMin;
   [...$("#modeSeg").children].forEach(b => b.setAttribute("aria-pressed", b.dataset.m === st.mode));
 
@@ -460,10 +473,21 @@ footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px
 
   /* ---------- league table ---------- */
   const lt = { sort: "pts", dir: -1 };
-  const LC = [["p", "MP"], ["w", "W"], ["d", "D"], ["l", "L"], ["gf", "GF"], ["ga", "GA"], ["gd", "GD"], ["pts", "Pts"], ["xgf", "xG"], ["xga", "xGA"], ["xgd", "xGD"], ["xpts", "xPts"], ["luck", "Pts−xPts"]];
+  const LCH = [["p", "MP"], ["w", "W"], ["d", "D"], ["l", "L"], ["gf", "GF"], ["ga", "GA"], ["gd", "GD"], ["pts", "Pts"], ["xgf", "xG"], ["xga", "xGA"], ["xgd", "xGD"], ["xpts", "xPts"], ["luck", "Pts−xPts"]];
   D.table.forEach((t, i) => { t.pos = i + 1; t.gd = t.gf - t.ga; t.xgd = +(t.xgf - t.xga).toFixed(1); t.luck = +(t.pts - t.xpts).toFixed(1); });
+  const LCL = [["p", "MP"], ["w", "W"], ["d", "D"], ["l", "L"], ["gf", "GF"], ["ga", "GA"], ["gd", "GD"], ["pts", "Pts"]];
+  if (L) L.table.forEach(t => { t.gd = t.gf - t.ga; });
   function renderTable() {
-    const rows = [...D.table].sort((a, b) => (lt.sort === "pts" ? a.pos - b.pos : (a[lt.sort] - b[lt.sort]) * lt.dir));
+    const live = season === "live";
+    const LC = live ? LCL : LCH;
+    if (live && !LC.some(c => c[0] === lt.sort)) lt.sort = "pts";
+    $("#tLede").textContent = live
+      ? `Standings after ${Math.max(...L.table.map(t => t.p))} matchweeks. Expected goals and expected points need shot data, which the free data plan doesn't include.`
+      : "Final standings next to what the chances said. xPts simulates every match from its shots, so it shows the points a team's chance creation and prevention earned on average.";
+    $("#tLegend").innerHTML = live
+      ? '<span style="--c:var(--pitch)">Top four</span><span style="--c:var(--bad)">Relegation zone</span>'
+      : '<span style="--c:var(--pitch)">Champions League</span><span style="--c:var(--bad)">Relegated</span><span>Pts − xPts: green ran hot, red ran cold</span>';
+    const rows = [...(live ? L.table : D.table)].sort((a, b) => (lt.sort === "pts" ? a.pos - b.pos : (a[lt.sort] - b[lt.sort]) * lt.dir));
     const f1 = k => ["xgf", "xga", "xgd", "xpts", "luck"].includes(k);
     $("#ltable").innerHTML = `<thead><tr><th class="n">#</th><th class="sticky">Team</th>${LC.map(([k, l]) => `<th class="n${k === lt.sort ? " sorted" : ""}" data-k="${k}">${l}</th>`).join("")}<th>Last 5</th></tr></thead><tbody>${rows.map(t => `<tr class="${t.pos <= 4 ? "zone-ucl" : t.pos >= 18 ? "zone-rel" : ""}"><td class="n">${t.pos}</td><td class="sticky name">${esc(t.team)}</td>${LC.map(([k]) => {
       let v = t[k], s = f1(k) ? v.toFixed(1) : String(v), cls = "n";
@@ -476,11 +500,26 @@ footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px
   $("#ltable").addEventListener("click", e => { const th = e.target.closest("th[data-k]"); if (!th) return; const k = th.dataset.k; if (lt.sort === k) lt.dir *= -1; else { lt.sort = k; lt.dir = k === "ga" || k === "xga" || k === "l" ? 1 : -1; } renderTable(); });
 
   /* ---------- matches ---------- */
-  const weeks = [...new Set(D.matches.map(m => m.wk))].sort((a, b) => a - b);
-  $("#wkSel").innerHTML = `<option value="">All</option>` + weeks.map(w => `<option value="${w}">Week ${w}</option>`).join("");
-  $("#wkSel").value = String(weeks[weeks.length - 1]);
+  function setupMatches() {
+    const src = season === "live" ? L.matches : D.matches;
+    const weeks = [...new Set(src.map(m => m.wk))].sort((a, b) => a - b);
+    $("#wkSel").innerHTML = `<option value="">All</option>` + weeks.map(w => `<option value="${w}">Week ${w}</option>`).join("");
+    $("#wkSel").value = weeks.length ? String(weeks[weeks.length - 1]) : "";
+    const tms = season === "live" ? L.table.map(t => t.team).sort() : teams;
+    $("#mTeam").innerHTML = `<option value="">All teams</option>` + tms.map(t => `<option>${esc(t)}</option>`).join("");
+    $("#mLede").textContent = season === "live"
+      ? "Results so far this season. Shot maps and expected goals need shot data, which the free data plan doesn't include."
+      : "Results with each side's expected goals. Click a match for its shot map.";
+  }
   function renderMatches() {
     const w = $("#wkSel").value, t = $("#mTeam").value;
+    if (season === "live") {
+      const ms = L.matches.filter(m => (!w || m.wk == w) && (!t || m.h === t || m.a === t));
+      $("#mgrid").innerHTML = ms.map(m => `<div class="match static">
+        <span class="h">${esc(m.hs)}</span><span class="sc">${m.hg}–${m.ag}</span><span class="a">${esc(m.as)}</span>
+        <span class="date">${new Date(m.date + "T12:00").toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", year: "numeric" })} · Week ${m.wk}</span></div>`).join("") || `<p class="note">No results for this selection yet.</p>`;
+      return;
+    }
     const ms = D.matches.filter(m => (!w || m.wk == w) && (!t || m.h === t || m.a === t));
     const mx = 4;
     $("#mgrid").innerHTML = ms.map(m => `<button class="match" data-id="${m.id}" aria-label="${esc(m.h)} ${m.hg}, ${esc(m.a)} ${m.ag}. Open shot map">
@@ -490,7 +529,7 @@ footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px
   }
   $("#wkSel").addEventListener("change", renderMatches);
   $("#mTeam").addEventListener("change", e => { if (e.target.value) $("#wkSel").value = ""; renderMatches(); });
-  $("#mgrid").addEventListener("click", e => { const b = e.target.closest(".match"); if (b) openMatch(+b.dataset.id); });
+  $("#mgrid").addEventListener("click", e => { const b = e.target.closest("button.match"); if (b) openMatch(+b.dataset.id); });
 
   let matchShots = null;
   function openMatch(id) {
@@ -520,7 +559,36 @@ footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px
     ["AUC", M.auc.toFixed(3)], ["Log loss", M.log_loss.toFixed(3)], ["Log loss, no model", M.baseline_log_loss.toFixed(3)],
     ["Agreement with StatsBomb xG", "r = " + M.corr_with_statsbomb_xg.toFixed(2)],
   ].map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join("");
-  $("#updated").textContent = "· Built " + D.updated;
+  function renderChrome() {
+    const live = season === "live";
+    $("#credit").textContent = live ? `Data: football-data.org · updated ${L.updated}` : "Data: StatsBomb Open Data · xG: Touchline model";
+    $("#foot").innerHTML = live
+      ? `Touchline · Premier League ${esc(L.season)} · Table, results and scorers from football-data.org. Not affiliated with the Premier League or its clubs.`
+      : "Touchline · Premier League 2015/16 · Event data © StatsBomb, used under the StatsBomb Open Data user agreement. Not affiliated with the Premier League or its clubs. · Built " + esc(D.updated);
+    $("#seasonSeg").innerHTML = (L ? `<button data-s="live" aria-pressed="${live}">${esc(L.season)}<small>live</small></button>` : `<button data-s="live" aria-pressed="false">2026/27<small>live</small></button>`)
+      + `<button data-s="hist" aria-pressed="${!live}">2015/16<small>full stats</small></button>`;
+    $("#histPlayers").hidden = live; $("#livePlayers").hidden = !live;
+    $("#pTitle").textContent = live ? "Top scorers" : "Player stats";
+  }
+  function renderLivePlayers() {
+    if (!L) return;
+    const note = `<p class="banner">Full player stats, xG and shot maps for ${esc(L.season)} need a paid data plan. <button data-go="hist">Switch to 2015/16</button> to see what the site does with full data.</p>`;
+    if (!L.scorers.length) { $("#livePlayers").innerHTML = note + '<p class="note">Top scorers aren\'t available on the current data plan.</p>'; return; }
+    $("#livePlayers").innerHTML = note + `<div class="tscroll"><table><thead><tr><th class="n">#</th><th class="sticky">Player</th><th>Team</th><th class="n">MP</th><th class="n">Gls</th><th class="n">Ast</th><th class="n">G+A</th><th class="n">PK</th></tr></thead><tbody>${L.scorers.map((s, i) => `<tr><td class="n rank">${i + 1}</td><td class="sticky name">${esc(s.name)}</td><td class="team">${esc(s.short)}</td><td class="n">${s.mp ?? "–"}</td><td class="n"><b>${s.g}</b></td><td class="n">${s.a}</td><td class="n">${s.g + s.a}</td><td class="n">${s.pen}</td></tr>`).join("")}</tbody></table></div>`;
+  }
+  function setSeason(s) {
+    if (s === "live" && !L) {
+      $("#livePlayers").innerHTML = "";
+      season = "hist";
+      showSheet(`<div class="sheet-head"><div><h3 id="sheetTitle">2026/27 isn't loaded yet</h3><div class="meta">The current season appears after the first daily update runs.</div></div><button class="close" aria-label="Close">×</button></div>
+        <div class="prose" style="margin-top:16px"><p>The update fetches this season's table, results and top scorers from football-data.org's free plan. To switch it on, register for a free key, add it to the GitHub repository as the secret <b>FOOTBALL_DATA_TOKEN</b>, and run the "Update stats" workflow once. The README has the steps.</p></div>`);
+      return;
+    }
+    season = s; lt.sort = "pts"; lt.dir = -1;
+    renderChrome(); renderTable(); setupMatches(); renderMatches();
+  }
+  $("#seasonSeg").addEventListener("click", e => { const b = e.target.closest("button"); if (b) setSeason(b.dataset.s); });
+  $("#livePlayers").addEventListener("click", e => { if (e.target.closest("[data-go]")) setSeason("hist"); });
 
   /* ---------- routing ---------- */
   const VIEWS_ALL = ["players", "table", "matches", "method"];
@@ -537,6 +605,6 @@ footer { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px
   });
   window.addEventListener("hashchange", () => route());
 
-  renderPlayers(); renderTable(); renderMatches(); route();
+  renderLivePlayers(); renderPlayers(); renderChrome(); renderTable(); setupMatches(); renderMatches(); route();
 })();
 </script>
